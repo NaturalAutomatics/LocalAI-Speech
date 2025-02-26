@@ -82,28 +82,71 @@ class GPT4AllVoiceAssistant:
         
         return found_sources
 
+    def get_valid_audio_sources(self):
+        """Get a list of valid audio sources with proper testing"""
+        valid_sources = []
+        print("\nChecking available audio sources...")
+        
+        for index, name in enumerate(sr.Microphone.list_microphone_names()):
+            try:
+                # Try to initialize the microphone
+                microphone = sr.Microphone(device_index=index)
+                
+                # Test if we can actually use it
+                with microphone as source:
+                    # Quick ambient noise adjustment to test if the source is responsive
+                    self.recognizer.adjust_for_ambient_noise(source, duration=0.1)
+                    valid_sources.append((index, name))
+                    print(f"Index {index}: {name} (✓)")
+            except Exception as e:
+                print(f"Index {index}: {name} (✗) - {str(e)}")
+                continue
+        
+        return valid_sources
+
     def test_audio_source(self, device_index: int, duration: int = 5):
-        """Test a specific audio source"""
+        """Test a specific audio source with proper resource handling"""
+        if device_index >= len(sr.Microphone.list_microphone_names()):
+            print(f"Error: Device index {device_index} is out of range.")
+            return False
+
+        source_name = sr.Microphone.list_microphone_names()[device_index]
+        print(f"\nTesting source: {source_name}")
+        print(f"Listening for {duration} seconds...")
+
+        # Create a new recognizer instance for this test
+        test_recognizer = sr.Recognizer()
+
         try:
-            mic = sr.Microphone(device_index=device_index)
-            source_name = sr.Microphone.list_microphone_names()[device_index]
+            # Explicitly create and manage the microphone resource
+            microphone = sr.Microphone(device_index=device_index)
             
-            print(f"\nTesting source: {source_name}")
-            print(f"Listening for {duration} seconds...")
-            
-            with mic as source:
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            # Use context manager to properly handle the audio source
+            with microphone as source:
+                print("Adjusting for ambient noise...")
+                test_recognizer.adjust_for_ambient_noise(source, duration=1)
+                
+                print("Listening... (speak now)")
                 try:
-                    audio = self.recognizer.listen(source, timeout=duration)
-                    text = self.recognizer.recognize_google(audio)
-                    print(f"Recognized: '{text}'")
-                    return True
+                    audio = test_recognizer.listen(source, timeout=duration)
+                    print("Processing audio...")
+                    
+                    try:
+                        text = test_recognizer.recognize_google(audio)
+                        print(f"Recognized: '{text}'")
+                        return True
+                    except sr.UnknownValueError:
+                        print("Audio detected but couldn't be recognized.")
+                        return False
+                    
                 except sr.WaitTimeoutError:
                     print("No audio detected during test.")
                     return False
-                except sr.UnknownValueError:
-                    print("Audio detected but couldn't be recognized.")
-                    return False
+                    
+        except OSError as e:
+            print(f"Error: Cannot access audio device (index {device_index})")
+            print(f"Details: {str(e)}")
+            return False
         except Exception as e:
             print(f"Error testing source: {str(e)}")
             return False
@@ -121,25 +164,52 @@ class GPT4AllVoiceAssistant:
             choice = input("Choose an option (1-5): ")
             
             if choice == "1":
-                self.list_all_audio_sources()
+                valid_sources = self.get_valid_audio_sources()
             
             elif choice == "2":
                 self.find_stereo_mix()
             
             elif choice == "3":
                 try:
+                    # Show valid sources first
+                    valid_sources = self.get_valid_audio_sources()
+                    if not valid_sources:
+                        print("No valid audio sources found!")
+                        continue
+                    
                     index = int(input("Enter source index to test: "))
+                    # Validate index
+                    if index not in [idx for idx, _ in valid_sources]:
+                        print("Invalid source index. Please choose from the list above.")
+                        continue
+                        
                     self.test_audio_source(index)
                 except ValueError:
                     print("Please enter a valid number.")
             
             elif choice == "4":
                 try:
+                    # Show valid sources first
+                    valid_sources = self.get_valid_audio_sources()
+                    if not valid_sources:
+                        print("No valid audio sources found!")
+                        continue
+                    
                     index = int(input("Enter source index to use: "))
+                    # Validate index
+                    if index not in [idx for idx, _ in valid_sources]:
+                        print("Invalid source index. Please choose from the list above.")
+                        continue
+                    
                     self.microphone = sr.Microphone(device_index=index)
                     source_name = sr.Microphone.list_microphone_names()[index]
                     print(f"Selected source: {source_name}")
-                    return True
+                    
+                    # Test the selected source
+                    if self.test_audio_source(index):
+                        return True
+                    else:
+                        print("Source test failed. Please try another source.")
                 except ValueError:
                     print("Please enter a valid number.")
                 except Exception as e:
@@ -149,27 +219,39 @@ class GPT4AllVoiceAssistant:
                 return False
 
     def listen(self) -> str:
-        """Listen for voice input and convert to text"""
-        mic_source = self.microphone if hasattr(self, 'microphone') else sr.Microphone()
+        """Listen for voice input and convert to text with proper resource handling"""
+        if not hasattr(self, 'microphone'):
+            print("No microphone selected. Using default...")
+            self.microphone = sr.Microphone()
         
-        with mic_source as source:
-            print("Listening...")
-            self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            try:
-                audio = self.recognizer.listen(source, timeout=5)
-                print("Processing speech...")
-                text = self.recognizer.recognize_google(audio)
-                print(f"You said: {text}")
-                return text
-            except sr.WaitTimeoutError:
-                print("No speech detected")
-                return ""
-            except sr.UnknownValueError:
-                print("Could not understand audio")
-                return ""
-            except sr.RequestError as e:
-                print(f"Could not request results; {e}")
-                return ""
+        try:
+            with self.microphone as source:
+                print("Listening...")
+                # Adjust for ambient noise before each listen
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                
+                try:
+                    audio = self.recognizer.listen(source, timeout=5)
+                    print("Processing speech...")
+                    
+                    try:
+                        text = self.recognizer.recognize_google(audio)
+                        print(f"You said: {text}")
+                        return text
+                    except sr.UnknownValueError:
+                        print("Could not understand audio")
+                        return ""
+                    except sr.RequestError as e:
+                        print(f"Could not request results; {e}")
+                        return ""
+                        
+                except sr.WaitTimeoutError:
+                    print("No speech detected")
+                    return ""
+                    
+        except Exception as e:
+            print(f"Error during listening: {str(e)}")
+            return ""
 
     def speak(self, text: str) -> None:
         """Convert text to speech"""
@@ -247,12 +329,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-    # Install required packages
-    # """
-    # pip install SpeechRecognition
-    # pip install pyttsx3
-    # pip install pyaudio
-    # pip install requests
-    # pip install pywin32  # for Windows
-    # """
