@@ -92,6 +92,97 @@ audio_file = speech_module.text_to_speech(
 - If the API does not support TTS or fails, it falls back to using local OS capabilities
 - On Windows, generated audio files are not automatically saved when using the fallback mechanism
 
+## Developing New AI Features
+
+### Architecture Overview
+
+The AI assistant uses a modular approach where new capabilities can be added as "features" or "tools" that the AI can invoke based on user requests.
+
+### Adding New Features - Step by Step
+
+#### 1. Create Feature Classes
+
+Create feature classes that inherit from a base `AIFeature` class:
+
+```python
+class AIFeature:
+    def __init__(self, name: str, description: str):
+        self.name = name
+        self.description = description
+    
+    def can_handle(self, user_input: str) -> bool:
+        """Check if this feature can handle the user input"""
+        raise NotImplementedError
+    
+    def execute(self, user_input: str, **kwargs) -> str:
+        """Execute the feature and return result"""
+        raise NotImplementedError
+```
+
+#### 2. Implement Feature Detection
+
+Use keyword matching or AI-based intent recognition to determine which feature to use:
+
+```python
+def detect_intent(self, user_input: str) -> str:
+    """Detect user intent from input"""
+    # Use GPT4ALL to analyze intent
+    intent_prompt = f"Analyze this request and identify the main action: '{user_input}'. Respond with one word: create_file, usb_operation, web_search, etc."
+    return self.generate_response(intent_prompt).strip().lower()
+```
+
+#### 3. Register and Execute Features
+
+Register features in the main assistant class and route requests:
+
+```python
+def __init__(self):
+    # ... existing code ...
+    self.features = {
+        'file_operations': FileOperationsFeature(),
+        'usb_operations': USBOperationsFeature(),
+        # Add more features here
+    }
+
+def process_with_features(self, user_input: str) -> str:
+    """Process user input with available features"""
+    intent = self.detect_intent(user_input)
+    
+    for feature in self.features.values():
+        if feature.can_handle(user_input):
+            return feature.execute(user_input)
+    
+    # Fallback to regular GPT4ALL response
+    return self.generate_response(user_input)
+```
+
+#### 4. Feature Development Guidelines
+
+- **Safety First**: Always validate user inputs and file paths
+- **Error Handling**: Provide clear error messages and graceful failures
+- **Permissions**: Check system permissions before executing operations
+- **Logging**: Log all feature executions for debugging
+- **User Feedback**: Provide clear status updates during operations
+
+### Example Features to Implement
+
+1. **File Operations**: Create, read, modify, delete files
+2. **USB Device Management**: List, mount, unmount USB devices
+3. **System Information**: Get CPU, memory, disk usage
+4. **Network Operations**: Check connectivity, download files
+5. **Process Management**: List, start, stop processes
+6. **Calendar Integration**: Schedule events, reminders
+7. **Email Operations**: Send emails, check inbox
+8. **Web Scraping**: Extract information from websites
+
+### Security Considerations
+
+- **Sandboxing**: Limit file system access to specific directories
+- **Input Validation**: Sanitize all user inputs
+- **Permission Checks**: Verify user has necessary permissions
+- **Audit Trail**: Log all system operations
+- **Rate Limiting**: Prevent abuse of system resources
+
 ## Troubleshooting
 
 ### Connection Issues
@@ -106,3 +197,9 @@ If you see a connection error, ensure:
 - **macOS**: Ensure `afplay` is available (built into macOS)
 - **Windows**: Install `playsound` package
 - **Linux**: Ensure `aplay` is available (install via `sudo apt-get install alsa-utils` on Debian/Ubuntu)
+
+### Feature Development Issues
+
+- **Import Errors**: Ensure all required packages are installed
+- **Permission Denied**: Run with appropriate system permissions
+- **Feature Not Detected**: Check keyword matching in `can_handle()` method

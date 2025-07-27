@@ -1,0 +1,8 @@
+[
+    {
+        "key": "f5",
+        "command": "workbench.action.tasks.runTask",
+        "args": "Run Python File",
+        "when": "editorTextFocus && resourceExtname == '.py'"
+    }
+]
